@@ -1,18 +1,516 @@
 R code forecasting crimes in Dallas
 ================
-John Kenney, Matt Brown, Abdel Homi, Kaushik Pasikanti
+John Kenney
 11/12/2021
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+``` r
+library(ggplot2)
+library(dplyr)
+#library(reshape2)
+library(kableExtra)
+library(reshape2)
+library(vars)
+#library(mFilter)
+#library(tseries)
+#library(TSstudio)
+library(forecast)
+library(tidyverse)
+#library(forcats)
+library(lubridate)
+#library(BBmisc)
+#library(glmnet)
+library(sparsevar)
+library(bigtime)
+library(fastDummies)
+#set working directory
+#setwd("C:/Users/John/Documents/R/Programs/Capstone/")
+#setwd("C:/Users/jkenn/OneDrive/Documents/R/capstone/")
+#
+#setwd("C:/Users/jkenn/OneDrive/Documents/Forecasting-Crimes-in-Dallas-using-actual-DPD-Data/")
+#set doDataCleaning to TRUE if you don't have the cleaned data frames already saved in your directory
+doDataCleaning <- FALSE
+#doDataCleaning <- TRUE
+#set train ratio
+trainratio <- .8
+#WIT stands for Weekly taag data
+#WINT stands for weekly non-taag data
+#WIO stands for weekly Overall data
+
+#WIT_names contains the a string of the transformations applied to WIT in column order
+#WINT_names contains the a string of the transformations applied to WINT in column order
+#WIO_names contains the a string of the transformations applied to WIO in column order
+
+#TWIT stands for TAAG data after transforming to stationary
+#TWINT stands for non-TAAG data after transforming to stationary
+#TWIO stands for Overall data after transforming to stationary
+
+#scaled_TWIT stands for TAAG data scaled to training data and test data scaled using scaled attributes of the training data
+#scaled_TWINT stands for non-TAAG data scaled to training data and test data scaled using scaled attributes of the training data
+#scaled_TWIO stands for overall data scaled to training data and test data scaled using scaled attributes of the training data
+
+
+# I have tried to make the code as general as possible where the functions may be able to work with more variables or a different data set but all code with tables probably will have to be tweaked if used with more variables or different data sets
+```
 
 **DATA CLEANING**
 
+``` r
+if (doDataCleaning) {
+    ###################################################################################################################
+  ###################################################################################################################
+  # Project R File for TAAG
+  ###################################################################################################################
+  ###################################################################################################################
+
+  
+  #########################################################################
+  # Read in data and select relevant columns
+  # Lines 30-41
+  #########################################################################
+  {
+    
+    # Incidents
+    inc <- read.csv("Data/Police_Incidents1.csv")
+    
+    # Retrieve TAAG's, date of occurrence, offense description, crime category, type of victim, gender of victim
+    pin <- inc %>% dplyr::select(Target.Area.Action.Grids, Date1.of.Occurrence, UCR.Offense.Description, NIBRS.Crime.Category,Day1.of.the.Year, Month1.of.Occurence)
+    # Write result to a new csv file
+    #write.csv(pin,file = "pin_new.csv", row.names=FALSE, quote=FALSE)
+  }
+  
+  pin$NIBRS.Crime.Category %>% unique()
+  pin$UCR.Offense.Description %>% unique() 
+  
+  #########################################################################
+  # Provide appropriate abbreviations and labels for each column
+  # Lines 48- 113
+  #########################################################################
+  {
+    # Provide abbreviations for each category of crime, group similar crimes into one category
+    pin$NIBRS.Crime.Category <- pin$NIBRS.Crime.Category %>%
+      fct_collapse(ALCH = c("DRIVING UNDER THE INFLUENCE", "PUBLIC INTOXICATION", "LIQUOR LAW VIOLATIONS"),
+                   ASST = c("ASSAULT OFFENSES"),
+                   ROBB = c("ROBBERY"),
+                   BURG = c("BURGLARY/ BREAKING & ENTERING"),
+                   THEF = c("LARCENY/ THEFT OFFENSES",
+                            "STOLEN PROPERTY OFFENSES", "MOTOR VEHICLE THEFT"),
+                   #MVTF = c("MOTOR VEHICLE THEFT"),
+                   HOMD = c("HOMICIDE OFFENSES"  ),
+                   MOTR = c("TRAFFIC VIOLATION - NON HAZARDOUS", "TRAFFIC VIOLATION - HAZARDOUS" ),
+                   VAND = c("DESTRUCTION/ DAMAGE/ VANDALISM OF PROPERTY" ),
+                   DRUG = c("DRUG/ NARCOTIC VIOLATIONS"),
+                   OTHR = c("MISCELLANEOUS","", "ALL OTHER OFFENSES", "DISORDERLY CONDUCT","ANIMAL OFFENSES", "TRESPASS OF REAL PROPERTY"),
+                   FAMY = c("FAMILY OFFENSES, NONVIOLENT"),
+                   KIDN = c("KIDNAPPING/ ABDUCTION"),
+                   SOIC = c("PORNOGRAPHY/ OBSCENE MATERIAL","SEX OFFENSES, FORCIBLE","PEEPING TOM"),
+                   WCCR = c("EMBEZZELMENT","COUNTERFEITING / FORGERY","EXTORTION/ BLACKMAIL",
+                            "GAMBLING OFFENSES" ,"BRIBERY","FRAUD OFFENSES"),
+                   ARSN = c("ARSON"),
+                   WEAP = c("WEAPON LAW VIOLATIONS"),
+                   HUTR = c("HUMAN TRAFFICKING"))
+    
+    # Provide abbreviations for each offense description, group similar descriptions into one category
+    pin$UCR.Offense.Description <- pin$UCR.Offense.Description %>%
+      fct_collapse(ALCH = c("DWI", "LIQUOR", "DRUNK & DISORDERLY"),
+                   ASST = c("ASSAULT", "AGGRAVATED ASSAULT" ),
+                   ROBB = c("ROBBERY"),
+                   BURG = c("BURGLARY"),
+                   THEF = c("THEFT","MOTOR VEHICLE THEFT", "AUTO THEFT - UUMV"),
+                   #MVTF = c("MOTOR VEHICLE THEFT", "AUTO THEFT - UUMV"),
+                   HOMD = c("MURDER", "INTOXICATION MANSLAUGHTER"  ),
+                   MOTR = c("MOTOR VEHICLE ACCIDENT","TRAFFIC","TRAFFIC FATALITY" ),
+                   VAND = c("CRIMINAL MISCHIEF/VANDALISM" ),
+                   DRUG = c("NARCOTICS/DRUGS"),
+                   OTHR = c("", "NO UCR REPORTABLE OFFENSE",
+                            "OTHER OFFENSES", "ATTEMPTED SUICIDE", "DISORDERLY CONDUCT","FAIL TO ID","PROSTITUTION","AIRPLANE","ANIMAL BITE","ANIMAL CRUELTY",
+                            "HOME ACCIDENT", "OCCUPATIONAL ACCIDENT","ACCIDENTAL INJURY","FIREARMS ACCIDENT",
+                            "FOUND PROPERTY", "LOST PROPERTY","SUDDEN DEATH"),
+                   FAMY = c("CHILD (OFFENSES AGAINST)","FAMILY OFFENSES NONVIOLENT"),
+                   KIDN = c("KIDNAPPING/ABDUCTION"),
+                   SOIC = c("PORNOGRAPHY/OBSCENE MATERIAL"),
+                   WCCR = c("EMBEZZLEMENT","FORGERY & COUNTERFEITING",
+                            "GAMBLING" ,"FRAUD","FORGERY & COUNTERFEIT", "BRIBERY"),  
+                   ARSN = c("ARSON"),
+                   WEAP = c("WEAPONS"),
+                   HUTR = c("HUMAN TRAFFICKING"))
+  
+  }
+  
+  # Convert Date of Occurrence to a Date with appropriate format
+  
+  pin$Date1.of.Occurrence <- as.Date(pin$Date1.of.Occurrence)
+  pin<- na.omit(pin)
+  pin<- pin[order(pin$Date1.of.Occurrence),]
+  row.names(pin) <- NULL
+  
+  #get date from day of the year and year from date of ocurrence 1
+  pin$Date <- as.Date(pin$Day1.of.the.Year, origin = as.Date(paste(year(pin$Date1.of.Occurrence),"01-01",sep = "-")))
+  pin<- na.omit(pin)
+  pin<- pin[order(pin$Date),]
+  row.names(pin) <- NULL
+  # When the crime category is "OTHR", use the offense description instead
+  pin$category <- ifelse(as.character(pin$NIBRS.Crime.Category) != "OTHR", as.character(pin$NIBRS.Crime.Category), as.character(pin$UCR.Offense.Description))
+  
+  # Edit: Matt Brown, Used as.factor 
+  pin$category <- as.factor(pin$category)
+  
+  # Remove offense description column now that both have been combined into category variable
+  pin <- pin %>% dplyr::select(Date,Target.Area.Action.Grids, category) # %>% filter(pin$Date < as.Date("2021-03-01"))
+  #pin <- pin  %>% filter(pin$Date > as.Date("2014-05-31"))
+  colnames(pin) <- c("Date", "TAAG", "NIBRS_Crime_Category")
+  
+  #write.csv(pin,file = "PIN.csv", row.names=FALSE, quote=FALSE)
+  PIN <- pin
+  # To determine the number of each crime by category
+  #count(pin,vars = NIBRS.Crime.Category)
+  
+  # Edit: Matt Brown, renamed PIn to P_Inc, this better differentiates our variables
+  P_Inc <- PIN %>% dplyr::select(Date,TAAG, NIBRS_Crime_Category)
+  
+  # Get the week of occurrence (range from 1 - 53)
+  P_Inc$Week.of.Occurrence = lubridate::week(ymd(P_Inc$Date))
+  # Reorder Week column to be just right of Date column
+  P_Inc = P_Inc[, c(1,4,2:3)]
+  
+  # ################################################################################
+  #collapse 53 weeks to 52
+  P_Inc$Week.of.Occurrence <- ifelse(P_Inc$Week.of.Occurrence == 53,52,P_Inc$Week.of.Occurrence)
+  
+  
+  #get dummies
+  Pin_dummies <- dummy_cols(P_Inc, select_columns = 'NIBRS_Crime_Category')
+  #View(Pin_dummies)
+  colnames(Pin_dummies) <- c("Date","Week","TAAG", "NIBRS_Crime_Category","ALCH", "ARSN", "ASST", "BURG", "DRUG", "FAMY", "HOMD", "HUTR", "KIDN", "MOTR", "OTHR", "ROBB", "SOIC", "THEF", "VAND", "WCCR", "WEAP")
+  count(Pin_dummies,vars = NIBRS_Crime_Category)
+  # take out HUTR and KIDN and OTHR and SOIC and FAMY
+  Pin_dummies <- Pin_dummies %>% dplyr::select(Date,Week,TAAG, NIBRS_Crime_Category,ALCH, ARSN, ASST, BURG, DRUG, HOMD, MOTR, ROBB, THEF, VAND, WCCR, WEAP) %>% filter(!NIBRS_Crime_Category %in% c("HUTR", "KIDN", "OTHR", "SOIC")) %>% filter(Date > as.Date("2014-05-31")) %>% filter(Date < as.Date("2021-01-01"))
+  count(Pin_dummies,vars = NIBRS_Crime_Category)
+  
+  
+  ###############'
+  ###############'
+  ###############'
+  Pin_dummies_taag <- Pin_dummies %>% dplyr::select(Date,Week,TAAG, NIBRS_Crime_Category, ASST, BURG, DRUG, HOMD, ROBB, THEF, WCCR) %>% filter(TAAG != "" ) %>% 
+    filter(Date > as.Date("2014-05-31")) %>% filter(Date < as.Date("2021-01-01"))
+  
+  write.csv(Pin_dummies_taag,file = "Data\\incidents_taag_heatmaps.csv", row.names=FALSE, quote=FALSE)
+  ###############'
+  ###############'
+  ###############'
+  
+  
+  
+  #monthly data for nontagg,taag, and overall
+  Monthly_Incidents_NON_TAAG <- Pin_dummies %>% dplyr::filter(TAAG =="") %>% 
+    group_by(year = year(Date), month = month(Date)) %>% 
+    summarise(ALCH_NT = sum(ALCH),ARSN_NT = sum(ARSN),ASST_NT = sum(ASST),BURG_NT = sum(BURG),
+              DRUG_NT = sum(DRUG),HOMD_NT = sum(HOMD),
+              MOTR_NT = sum(MOTR),
+              ROBB_NT = sum(ROBB), THEF_NT = sum(THEF), VAND_NT = sum(VAND),
+              WCCR_NT = sum(WCCR), WEAP_NT = sum(WEAP)) 
+  
+  
+  Monthly_Incidents_TAAG <- Pin_dummies %>% dplyr::filter(TAAG !="") %>% 
+    group_by(year = year(Date), month = month(Date)) %>% 
+    summarise(ALCH_T = sum(ALCH),ARSN_T = sum(ARSN),ASST_T = sum(ASST),BURG_T = sum(BURG),
+              DRUG_T = sum(DRUG),HOMD_T = sum(HOMD),
+              MOTR_T = sum(MOTR),
+              ROBB_T = sum(ROBB), THEF_T = sum(THEF), VAND_T = sum(VAND),
+              WCCR_T = sum(WCCR), WEAP_T = sum(WEAP))
+  
+  
+  
+  
+  
+  Monthly_Incidents_Overall <- Pin_dummies %>% 
+    group_by(year = year(Date), month = month(Date)) %>% 
+    summarise(ALCH_O = sum(ALCH),ARSN_O = sum(ARSN),ASST_O = sum(ASST),BURG_O = sum(BURG),
+              DRUG_O = sum(DRUG),HOMD_O = sum(HOMD),
+              MOTR_O = sum(MOTR),
+              ROBB_O = sum(ROBB), THEF_O = sum(THEF), VAND_O = sum(VAND),
+              WCCR_O = sum(WCCR), WEAP_O = sum(WEAP))
+  
+  
+  #Weekly data for nontagg,taag, and overall
+  Weekly_Incidents_NON_TAAG <- Pin_dummies %>% dplyr::filter(TAAG =="") %>% 
+    group_by(year = year(Date), Week) %>% 
+    summarise(ALCH_NT = sum(ALCH),ARSN_NT = sum(ARSN),ASST_NT = sum(ASST),BURG_NT = sum(BURG),
+              DRUG_NT = sum(DRUG),HOMD_NT = sum(HOMD),
+              MOTR_NT = sum(MOTR),
+              ROBB_NT = sum(ROBB),THEF_NT = sum(THEF), VAND_NT = sum(VAND),
+              WCCR_NT = sum(WCCR), WEAP_NT = sum(WEAP))
+  
+  
+  
+  Weekly_Incidents_TAAG <- Pin_dummies %>% dplyr::filter(TAAG !="") %>% 
+    group_by(year = year(Date), Week) %>% 
+    summarise(ALCH_T = sum(ALCH),ARSN_T = sum(ARSN),ASST_T = sum(ASST),BURG_T = sum(BURG),
+              DRUG_T = sum(DRUG),HOMD_T = sum(HOMD),
+              MOTR_T = sum(MOTR),
+              ROBB_T = sum(ROBB), THEF_T = sum(THEF), VAND_T = sum(VAND),
+              WCCR_T = sum(WCCR), WEAP_T = sum(WEAP))
+  
+  
+  Weekly_Incidents_Overall <- Pin_dummies %>% 
+    group_by(year = year(Date), Week) %>% 
+    summarise(ALCH_O = sum(ALCH),ARSN_O = sum(ARSN),ASST_O = sum(ASST),BURG_O = sum(BURG),
+              DRUG_O = sum(DRUG),HOMD_O = sum(HOMD),
+              MOTR_O = sum(MOTR),
+              ROBB_O = sum(ROBB), THEF_O = sum(THEF), VAND_O = sum(VAND),
+              WCCR_O = sum(WCCR), WEAP_O = sum(WEAP))
+  
+  
+  Monthly_Incidents_TAAG <- Monthly_Incidents_TAAG %>% dplyr::select(year,month, ASST_T, BURG_T, DRUG_T, HOMD_T, ROBB_T, THEF_T, WCCR_T)
+  Monthly_Incidents_NON_TAAG <- Monthly_Incidents_NON_TAAG %>% dplyr::select(year,month, ASST_NT, BURG_NT, DRUG_NT, HOMD_NT, ROBB_NT, THEF_NT, WCCR_NT)
+  Monthly_Incidents_Overall <- Monthly_Incidents_Overall %>% dplyr::select(year,month, ASST_O, BURG_O, DRUG_O, HOMD_O, ROBB_O, THEF_O, WCCR_O)
+  
+  Weekly_Incidents_TAAG <- Weekly_Incidents_TAAG %>% dplyr::select(year,Week, ASST_T, BURG_T, DRUG_T, HOMD_T, ROBB_T, THEF_T, WCCR_T)
+  Weekly_Incidents_NON_TAAG <- Weekly_Incidents_NON_TAAG %>% dplyr::select(year,Week, ASST_NT, BURG_NT, DRUG_NT, HOMD_NT, ROBB_NT, THEF_NT, WCCR_NT)
+  Weekly_Incidents_Overall <- Weekly_Incidents_Overall %>% dplyr::select(year,Week, ASST_O, BURG_O, DRUG_O, HOMD_O, ROBB_O, THEF_O, WCCR_O)
+  
+  if(nrow(Weekly_Incidents_TAAG) == 343)
+  {
+    Weekly_Incidents_TAAG <- Weekly_Incidents_TAAG[-c(1),]
+    Weekly_Incidents_NON_TAAG <- Weekly_Incidents_NON_TAAG[-c(1),]
+    Weekly_Incidents_Overall <- Weekly_Incidents_Overall[-c(1),]
+    
+    row.names(Weekly_Incidents_TAAG) <- NULL
+    row.names(Weekly_Incidents_NON_TAAG) <- NULL
+    row.names(Weekly_Incidents_Overall) <- NULL
+    
+  }
+  
+  # Monthly continuous variable to dataframe to plot with
+  MIT <- Monthly_Incidents_TAAG[,1:ncol(Monthly_Incidents_TAAG)]
+  MIT$id <- (2014.333)+(1:nrow(MIT))/12
+  MINT <- Monthly_Incidents_NON_TAAG[,1:ncol(Monthly_Incidents_NON_TAAG)]
+  MINT$id <- (2014.333)+(1:nrow(MINT))/12
+  MIO <- Monthly_Incidents_Overall[,1:ncol(Monthly_Incidents_Overall)]
+  MIO$id <- (2014.333)+(1:nrow(MIO))/12
+  
+  
+  
+  # weekly continuous variable to dataframe to plot with
+  WIT <- Weekly_Incidents_TAAG[,1:ncol(Weekly_Incidents_TAAG)]
+  WIT$id <- (2014.385)+(1:nrow(WIT))/52
+  WINT <- Weekly_Incidents_NON_TAAG[,1:ncol(Weekly_Incidents_NON_TAAG)]
+  WINT$id <- (2014.397)+(1:nrow(WINT))/52
+  WIO <- Weekly_Incidents_Overall[,1:ncol(Weekly_Incidents_Overall)]
+  WIO$id <- (2014.397)+(1:nrow(WIO))/52
+  
+  ##tagg and nontagg in one dataframe
+  #monthly
+  x1 <- cbind(Monthly_Incidents_TAAG[,1:ncol(Monthly_Incidents_TAAG)], Monthly_Incidents_NON_TAAG[,3:ncol(Monthly_Incidents_NON_TAAG)])
+  x1$id <- (2014.333)+(1:nrow(x1))/12
+  #weekly
+  x2 <- cbind(Weekly_Incidents_TAAG[,1:ncol(Weekly_Incidents_TAAG)], Weekly_Incidents_NON_TAAG[,3:ncol(Weekly_Incidents_NON_TAAG)])
+  x2$id <- (2014.397)+(1:nrow(x2))/52
+  require(ggplot2)
+  require(reshape2)
+  # 
+  # melt dataframes so easy to plot
+  df_MIT <- melt(MIT[,3:ncol(MIT)] ,  id.vars = 'id', variable.name = 'series')
+  df_MINT <- melt(MINT[,3:ncol(MINT)] ,  id.vars = 'id', variable.name = 'series')
+  df_MIO <- melt(MIO[,3:ncol(MIO)] ,  id.vars = 'id', variable.name = 'series')
+  
+  df_WIT <- melt(WIT[,3:ncol(WIT)] ,  id.vars = 'id', variable.name = 'series')
+  df_WINT <- melt(WINT[,3:ncol(WINT)] ,  id.vars = 'id', variable.name = 'series')
+  df_WIO <- melt(WIO[,3:ncol(WIO)] ,  id.vars = 'id', variable.name = 'series')
+  
+  ggplot(df_MIT, aes(id ,value))  + geom_line(aes(colour = series)) +
+    ggtitle("Monthly Non-TAAG Crime TS Plots")
+  ggplot(df_MINT, aes(id ,value))  + geom_line(aes(colour = series)) +
+    ggtitle("Monthly TAAG Crime TS Plots")
+  ggplot(df_MIO, aes(id ,value))  + geom_line(aes(colour = series)) +
+    ggtitle("Monthly Overall Crime TS Plots")
+  
+  
+  ggplot(df_WIT, aes(id ,value))  + geom_line(aes(colour = series)) +
+    ggtitle("Weekly TAAG Crime TS Plots")
+  ggplot(df_WINT, aes(id ,value))  + geom_line(aes(colour = series)) +
+    ggtitle("Weekly Non-TAAG Crime TS Plots")
+  ggplot(df_WIO, aes(id ,value))  + geom_line(aes(colour = series)) +
+    ggtitle("Weekly Overall Crime TS Plots")
+  
+  # 
+  # #Define as ts object ##
+  write.csv(x1,"Data\\x1.csv", row.names=FALSE, quote=FALSE)
+  write.csv(x2,"Data\\x2.csv", row.names=FALSE, quote=FALSE)
+  write.csv(Monthly_Incidents_NON_TAAG,"Data\\Monthly_Incidents_NON-TAAG.csv", row.names=FALSE, quote=FALSE)
+  write.csv(Monthly_Incidents_TAAG,"Data\\Monthly_Incidents_TAAG.csv", row.names=FALSE, quote=FALSE)
+  write.csv(Monthly_Incidents_Overall,"Data\\Monthly_Incidents_Overall.csv", row.names=FALSE, quote=FALSE)
+  
+  write.csv(Weekly_Incidents_NON_TAAG,"Data\\Weekly_Incidents_NON-TAAG.csv", row.names=FALSE, quote=FALSE)
+  write.csv(Weekly_Incidents_TAAG,"Data\\Weekly_Incidents_TAAG.csv", row.names=FALSE, quote=FALSE)
+  write.csv(Weekly_Incidents_Overall,"Data\\Weekly_Incidents_Overall.csv", row.names=FALSE, quote=FALSE)
+  #saveRDS(x1,file="X1.RData")
+  #saveRDS(x2,file="X2.RData")
+  # Saved progress to avoid all the data cleaning
+
+
+}
+```
+
 **TRANSFORMATION TO STATIONARY**
 
+``` r
+WIT <- NULL
+WIT <- read.csv("Data/Weekly_Incidents_TAAG.csv")
+WIO <- NULL
+WIO <- read.csv("Data/Weekly_Incidents_Overall.csv")
+WINT <- NULL
+WINT <- read.csv("Data/Weekly_Incidents_NON-TAAG.csv")
+```
+
+``` r
+data_W <- NULL
+data_W <- WIT
+df_of_transformations <- function(var,name) {
+  temp3 <- NULL
+  temp3 <- as.data.frame(var)
+  colnames(temp3) <- c(name)
+
+  temp3$transform <- ifelse(rep(all(var),length(var)),c(0,diff(log(var))),c(0,diff(var)))
+  temp3$transformused <- ifelse(rep(all(var),length(var)),"diff(log)","diff()")
+
+  return(temp3)
+}
+```
+
+``` r
+Graph_of_transformations_week <- function(df,nameing) {
+  if(nameing == "Attribute"){
+    name <-colnames(df)[1]
+    colnames(df)[1] <- "None"
+    df$id  <- (2014.385)+(1:nrow(df))/52
+    df2 <- melt(df,  id.vars = 'id', variable.name = 'Transformations')
+    ggplot(df2, aes(id,value)) +
+      geom_line(aes(colour = Transformations)) +
+      facet_wrap(~Transformations, scales="free_y") +
+      ggtitle(name)
+  } else {
+    df$id  <- (2014.385)+(1:nrow(df))/52
+    df2 <- melt(df,  id.vars = 'id', variable.name = 'Transformations')
+    ggplot(df2, aes(id,value)) +
+      geom_line(aes(colour = Transformations)) +
+      facet_wrap(~Transformations, scales="free_y") +
+      ggtitle(nameing) + 
+      theme(axis.text.x = element_text(angle = 30, hjust=1))
+  }
+  
+}
+```
+
+``` r
+PP_Test_of_Transformations <- function(df,name) {
+  stat <- c()
+  param <- c()
+  pval <- c()
+  namer <- c()
+  for(k in 1:ncol(df)){
+    temp5 <- PP.test(df[,k], lshort = TRUE)
+    stat <- c(stat,temp5$statistic)
+    param <- c(param,temp5$parameter)
+    pval <- c(pval,temp5$p.value)
+    namer <- c(namer,paste(colnames(df)[k],name[k],sep="_"))
+  }
+  temp5 <- NULL
+  temp5 <- cbind(stat,param,pval)
+  colnames(temp5) <- c("Dickey-Fuller","Truncation lag parameter","p-value")
+  rownames(temp5) <- c(namer)
+  
+  knitr::kable(temp5, caption = "stationary or not?",align = "llcr") %>% 
+    footnote(general = "Test used Phillips-Perron Test for Unit Roots",
+           number = c("P-value < 0.05 means data is stationary", "P-value > 0.05 means data is not stationary so try a different method.")) %>%
+    kable_styling(latex_options = c("striped"))
+
+}
+```
+
 **taag weekly**
+
+``` r
+plot(ts(WIT,start = c(WIT[1,1],WIT[1,2]),end = c(WIT[nrow(WIT),1],WIT[nrow(WIT),2]),frequency = 52)[,3:ncol(WIT)],main = "TAAG Dataset")
+```
+
 <img src="codeall_files/figure-gfm/unnamed-chunk-7-1.png" style="display: block; margin: auto;" />
+
+``` r
+data2_W <- NULL
+data2_W <- data_W[,c(1:2)]
+transformation_used_W <- NULL
+for (i in 3:ncol(data_W)) {
+  temp <- NULL
+  temp <- df_of_transformations(data_W[,i],colnames(data_W)[i])
+  data2_W <- cbind(data2_W,temp[,2])
+  colnames(data2_W) <- c(colnames(data2_W)[1:(ncol(data2_W)-1)],colnames(temp)[1])
+  transformation_used_W <- c(transformation_used_W,temp[1,3])
+}
+```
+
+``` r
+temp <- NULL
+temp <- data_W[1:nrow(data_W),3:ncol(data_W)]
+temp$id <- (2014.385)+(1:nrow(data_W))/52
+df_W <- melt(temp,  id.vars = 'id', variable.name = 'variables')
+ggplot(df_W, aes(id,value)) +
+  geom_line(aes(colour = variables)) +
+  facet_wrap(~variables, scales="free_y") + 
+  ggtitle("Untransformed Features plotted across time by weeks for TAAG data") +
+  theme(axis.text.x = element_text(angle = 30, hjust=1))
+```
 
 <img src="codeall_files/figure-gfm/unnamed-chunk-9-1.png" style="display: block; margin: auto;" />
 
+``` r
+if (nrow(data2_W) == 342) {
+ data2_W <- data2_W[-c(1),]
+ row.names(data2_W) <- NULL
+}
+Graph_of_transformations_week(data2_W[,3:ncol(data2_W)],"Transformed Features plotted across time by weeks for TAAG data")
+```
+
 <img src="codeall_files/figure-gfm/unnamed-chunk-10-1.png" style="display: block; margin: auto;" />
+
+``` r
+PP_Test_of_Transformations(data2_W[,3:ncol(data2_W)],transformation_used_W)
+```
 
 <table style="NAborder-bottom: 0; margin-left: auto; margin-right: auto;" class="table">
 <caption>
@@ -157,6 +655,30 @@ different method.
 </tr>
 </tfoot>
 </table>
+
+``` r
+Variable_W <- colnames(data2_W[,3:ncol(data2_W)])
+Description_W  <- c(#"   Alcohol related Crimes in all of DALLAS",
+                 #"   Arson related Crimes in all of DALLAS",
+                 "   Assault related Crimes in all of DALLAS",
+                 "   Burglary related Crimes in all of DALLAS",
+                 "   Drug related Crimes in all of DALLAS",
+                 "   Homicide related Crimes in all of DALLAS",
+                 #"   Motor Vehicle related Crimes in all of DALLAS",
+                 "   Robbery related Crimes in all of DALLAS",
+                 "   Theft related Crimes in all of DALLAS",
+                 #"   Vandalism related Crimes in all of DALLAS",
+                 "   White Collar related Crimes in all of DALLAS"
+                 )#"   Weapon related Crimes in all of DALLAS")
+
+Transformation_Applied_W <- transformation_used_W
+
+table_variables_W <- cbind(Variable_W,Description_W,Transformation_Applied_W)
+
+kbl(table_variables_W, booktabs = T, caption = "Table of Features and the Transformations Applied on Weekly TAAG data") %>%
+  kable_styling(latex_options = c("striped", "scale_down"))
+```
+
 <table class="table" style="margin-left: auto; margin-right: auto;">
 <caption>
 Table of Features and the Transformations Applied on Weekly TAAG data
@@ -254,13 +776,62 @@ diff(log)
 </tr>
 </tbody>
 </table>
+
+``` r
+TWIT <- data2_W
+WIT_names <- transformation_used_W
+```
+
 **non taag weekly**
+
+``` r
+plot(ts(WINT,start = c(WINT[1,1],WINT[1,2]),end = c(WINT[nrow(WINT),1],WINT[nrow(WINT),2]),frequency = 52)[,3:ncol(WINT)],main = "Non-TAAG Dataset")
+```
 
 <img src="codeall_files/figure-gfm/unnamed-chunk-14-1.png" style="display: block; margin: auto;" />
 
+``` r
+data_W <- NULL
+data_W <- WINT
+data2_W <- NULL
+data2_W <- data_W[,c(1:2)]
+transformation_used_W <- NULL
+for (i in 3:ncol(data_W)) {
+  temp <- NULL
+  temp <- df_of_transformations(data_W[,i],colnames(data_W)[i])
+  data2_W <- cbind(data2_W,temp[,2])
+  colnames(data2_W) <- c(colnames(data2_W)[1:(ncol(data2_W)-1)],colnames(temp)[1])
+  transformation_used_W <- c(transformation_used_W,temp[1,3])
+}
+```
+
+``` r
+temp <- NULL
+temp <- data_W[1:nrow(data_W),3:ncol(data_W)]
+temp$id <- (2014.385)+(1:nrow(data_W))/52
+df_W <- melt(temp,  id.vars = 'id', variable.name = 'variables')
+ggplot(df_W, aes(id,value)) +
+  geom_line(aes(colour = variables)) +
+  facet_wrap(~variables, scales="free_y") + 
+  ggtitle("Untransformed Features plotted across time by weeks for Non-TAAG data") +
+  theme(axis.text.x = element_text(angle = 30, hjust=1))
+```
+
 <img src="codeall_files/figure-gfm/unnamed-chunk-16-1.png" style="display: block; margin: auto;" />
 
+``` r
+if (nrow(data2_W) == 342) {
+ data2_W <- data2_W[-c(1),]
+ row.names(data2_W) <- NULL
+}
+Graph_of_transformations_week(data2_W[,3:ncol(data2_W)],"Transformed Features plotted across time by weeks for Non-TAAG data")
+```
+
 <img src="codeall_files/figure-gfm/unnamed-chunk-17-1.png" style="display: block; margin: auto;" />
+
+``` r
+PP_Test_of_Transformations(data2_W[,3:ncol(data2_W)],transformation_used_W)
+```
 
 <table style="NAborder-bottom: 0; margin-left: auto; margin-right: auto;" class="table">
 <caption>
@@ -405,6 +976,30 @@ different method.
 </tr>
 </tfoot>
 </table>
+
+``` r
+Variable_W <- colnames(data2_W[,3:ncol(data2_W)])
+Description_W  <- c(#"   Alcohol related Crimes in all of DALLAS",
+                 #"   Arson related Crimes in all of DALLAS",
+                 "   Assault related Crimes in all of DALLAS",
+                 "   Burglary related Crimes in all of DALLAS",
+                 "   Drug related Crimes in all of DALLAS",
+                 "   Homicide related Crimes in all of DALLAS",
+                 #"   Motor Vehicle related Crimes in all of DALLAS",
+                 "   Robbery related Crimes in all of DALLAS",
+                 "   Theft related Crimes in all of DALLAS",
+                 #"   Vandalism related Crimes in all of DALLAS",
+                 "   White Collar related Crimes in all of DALLAS"
+                 )#"   Weapon related Crimes in all of DALLAS")
+
+Transformation_Applied_W <- transformation_used_W
+
+table_variables_W <- cbind(Variable_W,Description_W,Transformation_Applied_W)
+
+kbl(table_variables_W, booktabs = T, caption = "Table of Features and the Transformations Applied on Weekly Non-TAAG data") %>%
+  kable_styling(latex_options = c("striped", "scale_down"))
+```
+
 <table class="table" style="margin-left: auto; margin-right: auto;">
 <caption>
 Table of Features and the Transformations Applied on Weekly Non-TAAG
@@ -503,13 +1098,62 @@ diff(log)
 </tr>
 </tbody>
 </table>
+
+``` r
+WINT_names <- transformation_used_W
+TWINT <- data2_W
+```
+
 **overall - weekly**
+
+``` r
+plot(ts(WIO,start = c(WIO[1,1],WIO[1,2]),end = c(WIO[nrow(WIO),1],WIO[nrow(WIO),2]),frequency = 52)[,3:ncol(WIO)],main = "Overall Dataset")
+```
 
 <img src="codeall_files/figure-gfm/unnamed-chunk-21-1.png" style="display: block; margin: auto;" />
 
+``` r
+data_W <- NULL
+data_W <- WIO
+data2_W <- NULL
+data2_W <- data_W[,c(1:2)]
+transformation_used_W <- NULL
+for (i in 3:ncol(data_W)) {
+  temp <- NULL
+  temp <- df_of_transformations(data_W[,i],colnames(data_W)[i])
+  data2_W <- cbind(data2_W,temp[,2])
+  colnames(data2_W) <- c(colnames(data2_W)[1:(ncol(data2_W)-1)],colnames(temp)[1])
+  transformation_used_W <- c(transformation_used_W,temp[1,3])
+}
+```
+
+``` r
+temp <- NULL
+temp <- data_W[1:nrow(data_W),3:ncol(data_W)]
+temp$id <- (2014.385)+(1:nrow(data_W))/52
+df_W <- melt(temp,  id.vars = 'id', variable.name = 'variables')
+ggplot(df_W, aes(id,value)) +
+  geom_line(aes(colour = variables)) +
+  facet_wrap(~variables, scales="free_y") + 
+  ggtitle("Untransformed Features plotted across time by weeks for Overall data") +
+  theme(axis.text.x = element_text(angle = 30, hjust=1))
+```
+
 <img src="codeall_files/figure-gfm/unnamed-chunk-23-1.png" style="display: block; margin: auto;" />
 
+``` r
+if (nrow(data2_W) == 342) {
+ data2_W <- data2_W[-c(1),]
+ row.names(data2_W) <- NULL
+}
+Graph_of_transformations_week(data2_W[,3:ncol(data2_W)],"Transformed Features plotted across time by weeks for Overall data")
+```
+
 <img src="codeall_files/figure-gfm/unnamed-chunk-24-1.png" style="display: block; margin: auto;" />
+
+``` r
+PP_Test_of_Transformations(data2_W[,3:ncol(data2_W)],transformation_used_W)
+```
 
 <table style="NAborder-bottom: 0; margin-left: auto; margin-right: auto;" class="table">
 <caption>
@@ -654,6 +1298,30 @@ different method.
 </tr>
 </tfoot>
 </table>
+
+``` r
+Variable_W <- colnames(data2_W[,3:ncol(data2_W)])
+Description_W  <- c(#"   Alcohol related Crimes in all of DALLAS",
+                 #"   Arson related Crimes in all of DALLAS",
+                 "   Assault related Crimes in all of DALLAS",
+                 "   Burglary related Crimes in all of DALLAS",
+                 "   Drug related Crimes in all of DALLAS",
+                 "   Homicide related Crimes in all of DALLAS",
+                 #"   Motor Vehicle related Crimes in all of DALLAS",
+                 "   Robbery related Crimes in all of DALLAS",
+                 "   Theft related Crimes in all of DALLAS",
+                 #"   Vandalism related Crimes in all of DALLAS",
+                 "   White Collar related Crimes in all of DALLAS"
+                 )#"   Weapon related Crimes in all of DALLAS")
+
+Transformation_Applied_W <- transformation_used_W
+
+table_variables_W <- cbind(Variable_W,Description_W,Transformation_Applied_W)
+
+kbl(table_variables_W, booktabs = T, caption = "Table of Features and the Transformations Applied on Weekly Overall data") %>%
+  kable_styling(latex_options = c("striped", "scale_down"))
+```
+
 <table class="table" style="margin-left: auto; margin-right: auto;">
 <caption>
 Table of Features and the Transformations Applied on Weekly Overall data
@@ -752,9 +1420,225 @@ diff(log)
 </tbody>
 </table>
 
+``` r
+WIO_names <- transformation_used_W
+TWIO <- data2_W
+```
+
+``` r
+undiff <- function(transformed,data,name,x) {
+ temp <- c()
+ for (i in 1:(ncol(transformed)-2)){
+   if(name[i] == "diff(log)"){
+     temp <- cbind(temp,exp(diffinv(data.matrix(transformed[,i+2]),xi = data.matrix(log(data[x,i+2])))))
+   }
+   else{
+     temp <- cbind(temp,diffinv(data.matrix(transformed[,i+2]),xi = data.matrix(data[x,i+2])))
+   }
+ }
+ temp <- cbind(data[,1:2],temp)
+ colnames(temp) <- c(colnames(data))
+ return(temp)
+}
+```
+
+``` r
+undiff2 <- function(transformed,data,name,x) {
+ temp <- c()
+for (i in 1:(ncol(data)-2)){
+ if(name[i] == "diff(log)"){
+   temp <- cbind(temp,exp(diffinv(data.matrix(transformed[,i]),xi = data.matrix(log(data[x,i+2]))))[2])
+ }
+ else{
+   temp <- cbind(temp,diffinv(data.matrix(transformed[,i]),xi = data.matrix(data[x,i+2]))[2])
+ }
+}
+#temp <- cbind(data[(x+1),1:2],temp)
+#colnames(temp) <- c(colnames(data))
+return(temp)
+}
+```
+
+``` r
+unscale <-  function(scaled,data)
+{
+  temp <- scale(data)
+  return(data.matrix(scaled %*% diag(attributes(temp)[[4]]) + sapply(attributes(temp)[[3]], rep, nrow(scaled))))
+}
+#colSums(unscale(scale(TWIT[,3:ncol(TWIT)]),TWIT[,3:ncol(TWIT)]) - TWIT[,3:ncol(TWIT)])
+```
+
+``` r
+sparsevarforecast1h <-  function(model, data)
+{#forecasts 1 step ahead  #yhat = phihat_matrix * Y(t:t-maxlag) + intercept
+  return(data.matrix(model$Phihat) %*% data.matrix(data) + data.matrix(model$phi0hat))
+}
+```
+
+``` r
+sparsevarMSFE <- function(model,scaled,stationary,data,transformation,testsplit)
+{
+  #testing 1 step ahead predictions for test data
+  #calling function that returns a matrix of estimated 1 step ahead predictions for the test set
+  pred <- outofsamplepredictions(model,scaled,stationary,data,transformation,testsplit)
+  #observations of the test set
+  obs <- data.matrix(data[(testsplit+2):nrow(data),3:ncol(data)])
+  #returns RMSE for each time series
+  return(sqrt(colMeans((pred - obs)*(pred - obs))))
+}
+```
+
+``` r
+sparsevarMSFE_overall <- function(model,scaled,stationary,data,transformation,testsplit,taag,nontaag)
+{
+  #testing 1 step ahead predictions for test data
+  #calling function that returns a matrix of estimated 1 step ahead predictions for the test set
+  pred <- outofsamplepredictions(model,scaled,stationary,data,transformation,testsplit)
+
+  
+  priortaag <- colSums(taag[1:(testsplit+1),3:ncol(taag)])/colSums(data[1:(testsplit+1),3:ncol(data)])
+  priornontaag <- c(rep(1,(ncol(taag)-2))) - priortaag
+  
+  taagrmse <- sqrt(colMeans((pred*priortaag - data.matrix(taag[(testsplit+2):nrow(taag),3:ncol(taag)]))*
+                              (pred*priortaag - data.matrix(taag[(testsplit+2):nrow(taag),3:ncol(taag)]))))
+  nontaagrmse <- sqrt(colMeans((pred*priornontaag - data.matrix(nontaag[(testsplit+2):nrow(nontaag),3:ncol(nontaag)]))*
+                                 (pred*priornontaag - data.matrix(nontaag[(testsplit+2):nrow(nontaag),3:ncol(nontaag)]))))
+  #returns RMSE for each time series taag first and then nontaag
+  return(list(taagrmse,nontaagrmse))
+}
+```
+
+``` r
+# this works
+
+outofsamplepredictions <- function(model,scaled,stationary,data,transformation,testsplit)
+{
+  pred <- c()
+  for (j in 0:(nrow(stationary)-testsplit -1))
+  {#increases to the next observation of the test set to predict
+    #flattens the time series data to the correct format and then calls the function to forecast the 1 step ahead
+    flat <- flattener(model,scaled,testsplit,j)
+    #print(j)
+    #print("flatten x")
+    #print(flat)
+    f <- t(sparsevarforecast1h(model,flat))[1,]
+    #print("forecasted value")
+    #print(f)
+    #print("unscale")
+    un <- unscale(t(data.matrix(f)),stationary[1:testsplit,3:ncol(stationary)])
+    #print(un)
+    #print("undiff")
+    undif <- undiff2(un,data,transformation,(testsplit+1))
+    #print(undif)
+    pred <- rbind(pred,undif)
+  }
+  #pred
+  #returns matrix of predicted values
+  return(data.matrix(pred))
+}
+```
+
+``` r
+flattener <- function(model,data,testsplit,testindex)
+{#testindex indicates the position in the test set 
+  #ie first time of testset then testindex = 0 and
+  #if last time in test set testindex = (length(test window) -1)
+  #flattens data frame into a vector of dimensions (# of timeseries * number of lags to look back, 1)
+  x <- c()
+  for (i in 1:model$p){
+    for(k in 1:ncol(data)){
+      x <- c(x,data[testsplit-i+1+testindex,k])
+    }
+  }
+  return(x)
+}
+```
+
+``` r
+toLagDataFrame <- function(phihat,phi0hat,names) {
+  df <- phihat %>% round(4) %>% as.data.frame()
+  df2 <- phi0hat %>% round(4) %>% as.data.frame()
+  colnames(df2) <- c("Intercept")
+  df <- cbind(df,df2)
+  it <- seq(from = 0, to = (ncol(df)-1), by = nrow(df))
+  varnames <- c()
+  for (i in 1:nrow(df)) {
+    varnames <- c(varnames, paste0(names[i], ": Lag"))
+  }
+  for (i in 2:28) {
+    colnames(df)[(it[i-1]+1):it[i]]<- paste0(rep(varnames, each=1), " ",(i-1))
+  }
+  rownames(df) <- names
+  return(df)
+}
+#toLagDataFrame(full_fit_taag$Phihat,full_fit_taag$phi0hat,colnames(TWIT[,3:ncol(TWIT)]))
+```
+
+``` r
+lagDFtoTables <- function(df,rowvarnames) {
+  #right here it is set up where the column names follow the following format $$$$_@ where $$$$ specifies the variable and
+#         @ specifies which data set the data is from there could be two @@ or just @ change below ifs to correct data set etc 
+  dataname <- substr(rownames(df),6,length(rownames(df)))
+  t <- c()
+  for (i in 1:nrow(df)) {
+    tmp <- t(df[i,which(df[i,] != 0)])
+    colnames(tmp) <- c("Coefficients")
+    temp <- cbind(data.frame(Variables = rownames(tmp)),tmp)
+    rownames(temp) <- NULL
+    t <- c(t,list(temp))
+  }
+  
+  
+  if (dataname[1] == "T") {
+    for (i in 1:nrow(df)) {
+      print(kbl(t[[i]], booktabs = T, valign = 't', caption = paste0("TAAG model response variable is ",rowvarnames[i]), 
+                format.args=list(big.mark=",",floating=FALSE)) %>%
+            kable_styling(c("bordered","condensed"),
+                latex_options = c("hold_position"), font_size = 12, full_width = F))
+
+    }
+  }
+  else if (dataname[1] == "NT") {
+    for (i in 1:nrow(df)) {
+      print(kbl(t[[i]], booktabs = T, valign = 't',caption = paste0("Non-TAAG model response variable is ",rowvarnames[i]), 
+                format.args=list(big.mark=",",floating=FALSE)) %>%
+           kable_styling(c("bordered","condensed"),
+                latex_options = c("hold_position"), font_size = 12, full_width = F))
+    }
+  }
+  else {
+    for (i in 1:nrow(df)) {
+      print(kbl(t[[i]], booktabs = T, valign = 't',caption = paste0("Overall model response variable is ",rowvarnames[i]), 
+                format.args=list(big.mark=",",floating=FALSE)) %>%
+           kable_styling(c("bordered","condensed"),
+                latex_options = c("hold_position"), font_size = 12, full_width = F))
+    }   
+  }
+  
+}
+```
+
 **full models** **TAAG**
 
+``` r
+# type full names of variables in column order for nicer tables to pass into the LagDFtoTables function
+crimenames <- c("Assault", "Burglary","Drug","Homicide","Robbery","Theft","White Collar Crime")
+```
+
+``` r
+#Taag weekly 
+#model = sparse var
+#penalty = hlag
+set.seed(1)
+full_fit_taag <- sparseVAR(data.matrix(scale(TWIT[,3:ncol(TWIT)]), rownames.force = NA),  selection = "cv", VARpen = "HLag",h=1)
+Lhat.full_fit_taag <- lagmatrix(fit=full_fit_taag,T) # get estimated lagmatrix
+```
+
 <img src="codeall_files/figure-gfm/unnamed-chunk-39-1.png" style="display: block; margin: auto;" />
+
+``` r
+lagDFtoTables(toLagDataFrame(full_fit_taag$Phihat,full_fit_taag$phi0hat,colnames(TWIT[,3:ncol(TWIT)])),crimenames)
+```
 
 <table class="table table-bordered table-condensed" style="font-size: 12px; width: auto !important; margin-left: auto; margin-right: auto;">
 <caption style="font-size: initial !important;">
@@ -1187,8 +2071,27 @@ Intercept
 </tr>
 </tbody>
 </table>
-**Non-TAAG**  
+
+``` r
+#toLagDataFrame(full_fit_taag$Phihat,full_fit_taag$phi0hat,colnames(TWIT[,3:ncol(TWIT)]))
+```
+
+**Non-TAAG**
+
+``` r
+#non-Taag weekly 
+#model = sparse var
+#penalty = HLag
+set.seed(1)
+full_fit_nontaag <- sparseVAR(data.matrix(scale(TWINT[,3:ncol(TWINT)]), rownames.force = NA),  selection = "cv", VARpen = "HLag",h=1)
+Lhat.full_fit_nontaag <- lagmatrix(fit=full_fit_nontaag,T) # get estimated lagmatrix
+```
+
 <img src="codeall_files/figure-gfm/unnamed-chunk-42-1.png" style="display: block; margin: auto;" />
+
+``` r
+lagDFtoTables(toLagDataFrame(full_fit_nontaag$Phihat,full_fit_nontaag$phi0hat,colnames(TWINT[,3:ncol(TWINT)])),crimenames)
+```
 
 <table class="table table-bordered table-condensed" style="font-size: 12px; width: auto !important; margin-left: auto; margin-right: auto;">
 <caption style="font-size: initial !important;">
@@ -1423,7 +2326,20 @@ Intercept
 </table>
 **Overall**
 
+``` r
+#Overall weekly 
+#model = sparse var
+#penalty = HLag
+set.seed(1)
+full_fit_Overall <- sparseVAR(data.matrix(scale(TWIO[,3:ncol(TWIO)]), rownames.force = NA),  selection = "cv", VARpen = "HLag",h=1)
+Lhat.full_fit_Overall <- lagmatrix(fit=full_fit_Overall,T) # get estimated lagmatrix
+```
+
 <img src="codeall_files/figure-gfm/unnamed-chunk-44-1.png" style="display: block; margin: auto;" />
+
+``` r
+lagDFtoTables(toLagDataFrame(full_fit_Overall$Phihat,full_fit_Overall$phi0hat,colnames(TWIO[,3:ncol(TWIO)])),crimenames)
+```
 
 <table class="table table-bordered table-condensed" style="font-size: 12px; width: auto !important; margin-left: auto; margin-right: auto;">
 <caption style="font-size: initial !important;">
@@ -1847,6 +2763,504 @@ Intercept
 *$RMSE$*  
 *$RMSE_i$*  
 
+``` r
+#$ \begin{equation*} \begin{pmatrix} \hat{Y}_{1}(T+1) \\ \hat{Y}_{2}(T+1) \\ \vdots \\ \hat{Y}_{k}(T+1) \end{pmatrix} =  \begin{pmatrix} A_{1,1} & \dots & #A_{1,1\cdot k} & \dots & A_{1,L\cdot 1} & \dots & A_{1,L\cdot k}\\ 4 & 5 & 6 \\ 7 & 8 & 9 \end{pmatrix} \end{equation*}$
+
+#$ \begin{equation*} \begin{pmatrix} \hat{Y}_{1}(T+1) \\ \hat{Y}_{2}(T+1) \\ \vdots \\ \hat{Y}_{k}(T+1) \end{pmatrix} =  (\Phi_{k,L \cdot k}) \cdot  (Y) #\end{equation*}$
+split <- floor(nrow(TWIT)*trainratio)
+
+scaled_TWIO <- scale(TWIO[,3:ncol(TWIO)],center = attributes(scale(TWIO[c(1:split),3:ncol(TWIO)]))[[3]],scale = attributes(scale(TWIO[c(1:split),3:ncol(TWIO)]))[[4]])
+
+scaled_TWIT <- scale(TWIT[,3:ncol(TWIT)],center = attributes(scale(TWIT[c(1:split),3:ncol(TWIT)]))[[3]],scale = attributes(scale(TWIT[c(1:split),3:ncol(TWIT)]))[[4]])
+
+scaled_TWINT <- scale(TWINT[,3:ncol(TWINT)],center = attributes(scale(TWINT[c(1:split),3:ncol(TWINT)]))[[3]],scale = attributes(scale(TWINT[c(1:split),3:ncol(TWINT)]))[[4]])
+```
+
+``` r
+TWIT_modelused <- c()
+TWINT_modelused <- c()
+TWIO_modelused <- c()
+
+TWIT_MsFE <- c()
+TWINT_MsFE <- c()
+TWIT_RMSE <- c()
+TWINT_RMSE <- c()
+```
+
+``` r
+#Taag weekly 
+#model = sparse var
+#penalty = hlag
+set.seed(1)
+ME_TWIT_CV_HLAG <- sparseVAR(data.matrix(scale(TWIT[c(1:split),3:ncol(TWIT)]), rownames.force = NA),  selection = "cv", VARpen = "HLag",h=1)
+#Lhat.ME_TWIT_CV_HLAG <- lagmatrix(fit=ME_TWIT_CV_HLAG,T) # get estimated lagmatrix
+
+#pred1 <- t(sparsevarforecast1h(ME_TWIT_CV_HLAG,flattener(ME_TWIT_CV_HLAG,scaled_TWIT,split,0)))
+#fcast1 <- directforecast(ME_TWIT_CV_HLAG,h=1)
+#print(pred1)
+#print(fcast1)
+#print(undiff2(unscale(data.matrix(pred1),TWIT[c(1:split),3:ncol(TWIT)]),WIT,WIT_names,(split+1)))
+#undiff(TWIT[(split+1),3:ncol(TWIT)])
+#print(data.matrix(WIT[(split+2),3:ncol(WIT)]))
+#p <- outofsamplepredictions(ME_TWIT_CV_HLAG,scaled_TWIT,TWIT,WIT,WIT_names,split)
+#p
+#o <- undiff2(unscale(scale(TWIT[(split+1),3:ncol(TWIT)],center = attributes(scale(TWIT[c(1:split),3:ncol(TWIT)]))[[3]],scale = attributes(scale(TWIT[c(1:split),3:ncol(TWIT)]))[[4]]),TWIT[c(1:split),3:ncol(TWIT)]),WIT,WIT_names,(split+1))
+#o
+
+
+ME_TWIT_CV_HLAG_MSFe <- sparsevarMSFE(ME_TWIT_CV_HLAG,scaled_TWIT,TWIT,WIT,WIT_names,split)
+#print(ME_TWIT_CV_HLAG_MSFe)
+
+
+if (!("SparseVar_CV_HLAG" %in% TWIT_modelused))
+{
+  TWIT_modelused <- c(TWIT_modelused,"SparseVar_CV_HLAG")
+  TWIT_MsFE <- rbind(TWIT_MsFE, mean(ME_TWIT_CV_HLAG_MSFe))
+  TWIT_RMSE <- rbind(TWIT_RMSE, (ME_TWIT_CV_HLAG_MSFe))
+}
+```
+
+``` r
+#Non-Taag weekly 
+#model = sparse var
+#penalty = Hlag
+set.seed(1)
+ME_TWINT_CV_HLag <- sparseVAR(data.matrix(scale(TWINT[c(1:split),3:ncol(TWINT)]), rownames.force = NA),  selection = "cv", VARpen = "HLag",h=1)
+#Lhat.ME_TWINT_CV_HLag <- lagmatrix(fit=ME_TWINT_CV_HLag,T) # get estimated lagmatrix
+
+
+#pred1 <- t(sparsevarforecast1h(ME_TWINT_CV_HLAG,flattener(ME_TWINT_CV_HLAG,scaled_TWINT,split,0)))
+#fcast1 <- directforecast(ME_TWINT_CV_HLAG,h=1)
+#print(pred1)
+#print(fcast1)
+#print(undiff2(unscale(data.matrix(pred1),TWINT[c(1:split),3:ncol(TWINT)]),WINT,WINT_names,(split+1)))
+#undiff(TWINT[(split+1),3:ncol(TWINT)])
+#print(data.matrix(WINT[(split+2),3:ncol(WINT)]))
+#p <- outofsamplepredictions(ME_TWINT_CV_HLAG,scaled_TWINT,TWINT,WINT,WINT_names,split)
+#p
+#o <- undiff2(unscale(scale(TWINT[(split+1),3:ncol(TWINT)],center = attributes(scale(TWINT[c(1:split),3:ncol(TWINT)]))[[3]],scale = attributes(scale(TWINT[c(1:split),3:ncol(TWINT)]))[[4]]),TWINT[c(1:split),3:ncol(TWINT)]),WINT,WINT_names,(split+1))
+#o
+
+
+ME_TWINT_CV_HLag_MSFe <- sparsevarMSFE(ME_TWINT_CV_HLag,scaled_TWINT,TWINT,WINT,WINT_names,split)
+#print(ME_TWINT_CV_HLag_MSFe)
+
+if (!("SparseVar_CV_HLag" %in% TWINT_modelused))
+{
+  TWINT_modelused <- c(TWINT_modelused,"SparseVar_CV_HLag")
+  TWINT_MsFE <- rbind(TWINT_MsFE, mean(ME_TWINT_CV_HLag_MSFe))
+  TWINT_RMSE <- rbind(TWINT_RMSE, (ME_TWINT_CV_HLag_MSFe))
+}
+```
+
+``` r
+#overall weekly 
+#model = sparse var
+#penalty = HLag
+set.seed(1)
+
+ME_TWIO_CV_HLAG <- sparseVAR(data.matrix(scale(TWIO[c(1:split),3:ncol(TWIO)]), rownames.force = NA),  selection = "cv", VARpen = "HLag",h=1)
+#Lhat.ME_TWIO_CV_HLAG <- lagmatrix(fit=ME_TWIO_CV_HLAG,T) # get estimated lagmatrix
+
+#pred1 <- t(sparsevarforecast1h(ME_TWIO_CV_HLAG,flattener(ME_TWIO_CV_HLAG,scaled_TWIO,split,0)))
+#fcast1 <- directforecast(ME_TWIO_CV_HLAG,h=1)
+#print(pred1)
+#print(fcast1)
+#print(undiff2(unscale(data.matrix(pred1),TWIO[c(1:split),3:ncol(TWIO)]),WIO,WIO_names,(split+1)))
+#undiff(TWIO[(split+1),3:ncol(TWIO)])
+#print(data.matrix(WIO[(split+2),3:ncol(WIO)]))
+#p <- outofsamplepredictions(ME_TWIO_CV_HLAG,scaled_TWIO,TWIO,WIO,WIO_names,split)
+#p
+#o <- undiff2(unscale(scale(TWIO[(split+1),3:ncol(TWIO)],center = attributes(scale(TWIO[c(1:split),3:ncol(TWIO)]))[[3]],scale = attributes(scale(TWIO[c(1:split),3:ncol(TWIO)]))[[4]]),TWIO[c(1:split),3:ncol(TWIO)]),WIO,WIO_names,(split+1))
+#o
+
+
+ME_TWIO_CV_HLAG_MSFe <- sparsevarMSFE_overall(ME_TWIO_CV_HLAG,scaled_TWIO,TWIO,WIO,WIO_names,split,WIT,WINT)
+#print("RMSE TAAG")
+#print(ME_TWIO_CV_HLAG_MSFe[[1]])
+#print("RMSE Non-TAAG")
+#print(ME_TWIO_CV_HLAG_MSFe[[2]])
+
+
+if (!("SparseVar_CV_HLAG_Overall" %in% TWIT_modelused))
+{
+  TWIT_modelused <- c(TWIT_modelused,"SparseVar_CV_HLAG_Overall")
+  TWIT_MsFE <- rbind(TWIT_MsFE, mean(ME_TWIO_CV_HLAG_MSFe[[1]]))
+  TWIT_RMSE <- rbind(TWIT_RMSE, ME_TWIO_CV_HLAG_MSFe[[1]])
+}
+if (!("SparseVar_CV_HLAG_Overall" %in% TWINT_modelused))
+{
+  TWINT_modelused <- c(TWINT_modelused,"SparseVar_CV_HLAG_Overall")
+  TWINT_MsFE <- rbind(TWINT_MsFE, mean(ME_TWIO_CV_HLAG_MSFe[[2]]))
+  TWINT_RMSE <- rbind(TWINT_RMSE, ME_TWIO_CV_HLAG_MSFe[[2]])
+}
+```
+
+``` r
+VARforecast1h <-  function(model, data)
+{#forecasts 1 step ahead  #yhat = phihat_matrix * Y(t:t-maxlag) + intercept
+  phihat<- c()
+  for(i in c(1:length(coef(model)))) {phihat <- rbind(phihat,coef(model)[[i]][,1])}
+  return(data.matrix(phihat) %*% data.matrix(data))
+}
+```
+
+``` r
+VARMSFE <- function(model,scaled,stationary,data,transformation,testsplit)
+{
+  #testing 1 step ahead predictions for test data
+  #calling function that returns a matrix of estimated 1 step ahead predictions for the test set
+  pred <- outofsamplepredictionsVAR(model,scaled,stationary,data,transformation,testsplit)
+  #observations of the test set
+  obs <- data.matrix(data[(testsplit+2):nrow(data),3:ncol(data)])
+  #returns RMSE for each time series
+  return(sqrt(colMeans((pred - obs)*(pred - obs))))
+}
+```
+
+``` r
+VARMSFE_overall <- function(model,scaled,stationary,data,transformation,testsplit,taag,nontaag)
+{
+  #testing 1 step ahead predictions for test data
+  #calling function that returns a matrix of estimated 1 step ahead predictions for the test set
+  pred <- outofsamplepredictionsVAR(model,scaled,stationary,data,transformation,testsplit)
+  
+  priortaag <- colSums(taag[1:(testsplit+1),3:ncol(taag)])/colSums(data[1:(testsplit+1),3:ncol(data)])
+  priornontaag <- c(rep(1,(ncol(taag)-2))) - priortaag
+  
+  taagrmse <- sqrt(colMeans((pred*priortaag - data.matrix(taag[(testsplit+2):nrow(taag),3:ncol(taag)]))*
+                              (pred*priortaag - data.matrix(taag[(testsplit+2):nrow(taag),3:ncol(taag)]))))
+  nontaagrmse <- sqrt(colMeans((pred*priornontaag - data.matrix(nontaag[(testsplit+2):nrow(nontaag),3:ncol(nontaag)]))*
+                                 (pred*priornontaag - data.matrix(nontaag[(testsplit+2):nrow(nontaag),3:ncol(nontaag)]))))
+  #returns RMSE for each time series taag first and then nontaag
+  return(list(taagrmse,nontaagrmse))
+}
+```
+
+``` r
+outofsamplepredictionsVAR <- function(model,scaled,stationary,data,transformation,testsplit)
+{
+  pred <- c()
+  for (j in 0:(nrow(stationary)-testsplit -1))
+  {#increases to the next observation of the test set to predict
+    #flattens the time series data to the correct format and then calls the function to forecast the 1 step ahead
+    flat <- flattenerVAR(model,scaled,testsplit,j)
+    #print(j)
+    #print("flatten x")
+    #print(flat)
+    f <- t(VARforecast1h(model,flat))[1,]
+    #print("forecasted value")
+    #print(f)
+    #print("unscale")
+    un <- unscale(t(data.matrix(f)),stationary[1:testsplit,3:ncol(stationary)])
+    #print(un)
+    #print("undiff")
+    undif <- undiff2(un,data,transformation,(testsplit+1))
+    #print(undif)
+    pred <- rbind(pred,undif)
+  }
+  #pred
+  #returns matrix of predicted values
+  return(data.matrix(pred))
+}
+```
+
+``` r
+flattenerVAR <- function(model,data,testsplit,testindex)
+{#testindex indicates the position in the test set 
+  #ie first time of testset then testindex = 0 and
+  #if last time in test set testindex = (length(test window) -1)
+  #flattens data frame into a vector of dimensions (# of timeseries * number of lags to look back, 1)
+  x <- c()
+  for (i in 1:model$p[[1]]){
+    for(k in 1:ncol(data)){
+      x <- c(x,data[testsplit-i+1+testindex,k])
+    }
+  }
+  x <- c(x,1)
+  return(x)
+}
+```
+
+``` r
+#taag weekly 
+#model = var
+#Max lag IC = AIC
+VAR_TWIT_fit <- VAR(scale(TWIT[c(1:split),3:ncol(TWIT)]), type = "const",lag.max = VARselect(scaled_TWIT[c(1:split),], lag.max = 12, type = "const")$selection[[1]])
+
+#pred1 <- t(VARforecast1h(VAR_TWIT_fit,flattenerVAR(VAR_TWIT_fit,scaled_TWIT,split,0)))
+#fcast1 <- predict(VAR_TWIT_fit,n.ahead = 1,ci=.95)
+#print(pred1)
+#print(fcast1)
+#print(undiff2(unscale(data.matrix(pred1),TWIT[c(1:split),3:ncol(TWIT)]),WIT,WIT_names,(split+1)))
+#p <- outofsamplepredictionsVAR(VAR_TWIT_fit,scaled_TWIT,TWIT,WIT,WIT_names,split)
+#o <- undiff2(unscale(scale(TWIT[(split+1),3:ncol(TWIT)],center = attributes(scale(TWIT[c(1:split),3:ncol(TWIT)]))[[3]],scale = attributes(scale(TWIT[c(1:split),3:ncol(TWIT)]))[[4]]),TWIT[c(1:split),3:ncol(TWIT)]),WIT,WIT_names,(split+1))
+
+VAR_TWIT_fit_MSFe <- VARMSFE(VAR_TWIT_fit,scaled_TWIT,TWIT,WIT,WIT_names,split)
+#print(VAR_TWIT_fit_MSFe)
+
+if (!("VAR_AIC" %in% TWIT_modelused))
+{
+  TWIT_modelused <- c(TWIT_modelused,"VAR_AIC")
+  TWIT_MsFE <- rbind(TWIT_MsFE, mean(VAR_TWIT_fit_MSFe))
+  TWIT_RMSE <- rbind(TWIT_RMSE, VAR_TWIT_fit_MSFe)
+}
+```
+
+``` r
+#non-taag weekly 
+#model = var
+#Max lag IC = AIC
+VAR_TWINT_fit <- VAR(scale(TWINT[c(1:split),3:ncol(TWINT)]), type = "const",lag.max = VARselect(scaled_TWINT[c(1:split),], lag.max = 12, type = "const")$selection[[1]])
+
+#pred1 <- t(VARforecast1h(VAR_TWINT_fit,flattenerVAR(VAR_TWINT_fit,scaled_TWINT,split,0)))
+#fcast1 <- predict(VAR_TWINT_fit,n.ahead = 1,ci=.95)
+#print(pred1)
+#print(fcast1)
+#print(undiff2(unscale(data.matrix(pred1),TWINT[c(1:split),3:ncol(TWINT)]),WINT,WINT_names,(split+1)))
+#p <- outofsamplepredictionsVAR(VAR_TWINT_fit,scaled_TWINT,TWINT,WINT,WINT_names,split)
+#o <- undiff2(unscale(scale(TWINT[(split+1),3:ncol(TWINT)],center = attributes(scale(TWINT[c(1:split),3:ncol(TWINT)]))[[3]],scale = attributes(scale(TWINT[c(1:split),3:ncol(TWINT)]))[[4]]),TWINT[c(1:split),3:ncol(TWINT)]),WINT,WINT_names,(split+1))
+
+
+
+VAR_TWINT_fit_MSFe <- VARMSFE(VAR_TWINT_fit,scaled_TWINT,TWINT,WINT,WINT_names,split)
+#print(VAR_TWINT_fit_MSFe)
+
+if (!("VAR_AIC" %in% TWINT_modelused))
+{
+  TWINT_modelused <- c(TWINT_modelused,"VAR_AIC")
+  TWINT_MsFE <- rbind(TWINT_MsFE, mean(VAR_TWINT_fit_MSFe))
+  TWINT_RMSE <- rbind(TWINT_RMSE, VAR_TWINT_fit_MSFe)
+}
+```
+
+``` r
+#Overall weekly 
+#model = var
+#Max lag IC = AIC
+VAR_TWIO_fit <- VAR(scale(TWIO[c(1:split),3:ncol(TWIO)]), type = "const",lag.max = VARselect(scaled_TWIO[c(1:split),], lag.max = 12, type = "const")$selection[[1]])
+
+
+#pred1 <- t(VARforecast1h(VAR_TWIO_fit,flattenerVAR(VAR_TWIO_fit,scaled_TWIO,split,0)))
+#fcast1 <- predict(VAR_TWIO_fit,n.ahead = 1,ci=.95)
+#print(pred1)
+#print(fcast1)
+#print(undiff2(unscale(data.matrix(pred1),TWIO[c(1:split),3:ncol(TWIO)]),WIO,WIO_names,(split+1)))
+#p <- outofsamplepredictionsVAR(VAR_TWIO_fit,scaled_TWIO,TWIO,WIO,WIO_names,split)
+#o <- undiff2(unscale(scale(TWIO[(split+1),3:ncol(TWIO)],center = attributes(scale(TWIO[c(1:split),3:ncol(TWIO)]))[[3]],scale = attributes(scale(TWIO[c(1:split),3:ncol(TWIO)]))[[4]]),TWIO[c(1:split),3:ncol(TWIO)]),WIO,WIO_names,(split+1))
+
+
+VAR_TWIO_fit_MSFe <- VARMSFE_overall(VAR_TWIO_fit,scaled_TWIO,TWIO,WIO,WIO_names,split,WIT,WINT)
+#print("RMSE TAAG")
+#print(VAR_TWIO_fit_MSFe[[1]])
+#print("RMSE Non-TAAG")
+#print(VAR_TWIO_fit_MSFe[[2]])
+
+
+if (!("VAR_AIC_Overall" %in% TWIT_modelused))
+{
+  TWIT_modelused <- c(TWIT_modelused,"VAR_AIC_Overall")
+  TWIT_MsFE <- rbind(TWIT_MsFE, mean(VAR_TWIO_fit_MSFe[[1]]))
+  TWIT_RMSE <- rbind(TWIT_RMSE, VAR_TWIO_fit_MSFe[[1]])
+}
+if (!("VAR_AIC_Overall" %in% TWINT_modelused))
+{
+  TWINT_modelused <- c(TWINT_modelused,"VAR_AIC_Overall")
+  TWINT_MsFE <- rbind(TWINT_MsFE, mean(VAR_TWIO_fit_MSFe[[2]]))
+  TWINT_RMSE <- rbind(TWINT_RMSE, VAR_TWIO_fit_MSFe[[2]])
+}
+```
+
+``` r
+AR1MSFE <- function(predictions,stationary,data,transformation,testsplit)
+{
+  #testing 1 step ahead predictions for test data
+  #calling function that returns a matrix of estimated 1 step ahead predictions for the test set
+  pred <- AR1original(predictions,stationary,data,transformation,testsplit)
+  #observations of the test set
+  obs <- data.matrix(data[(testsplit+2):nrow(data),3:ncol(data)])
+  #returns RMSE for each time series
+  return(sqrt(colMeans((pred - obs)*(pred - obs))))
+}
+```
+
+``` r
+AR1_overall <- function(predictions,stationary,data,transformation,testsplit,taag,nontaag)
+{
+  #testing 1 step ahead predictions for test data
+  #calling function that returns a matrix of estimated 1 step ahead predictions for the test set
+  pred <- AR1original(predictions,stationary,data,transformation,testsplit)
+  
+  priortaag <- colSums(taag[1:(testsplit+1),3:ncol(taag)])/colSums(data[1:(testsplit+1),3:ncol(data)])
+  priornontaag <- c(rep(1,(ncol(taag)-2))) - priortaag
+  
+  taagrmse <- sqrt(colMeans((pred*priortaag - data.matrix(taag[(testsplit+2):nrow(taag),3:ncol(taag)]))*
+                              (pred*priortaag - data.matrix(taag[(testsplit+2):nrow(taag),3:ncol(taag)]))))
+  nontaagrmse <- sqrt(colMeans((pred*priornontaag - data.matrix(nontaag[(testsplit+2):nrow(nontaag),3:ncol(nontaag)]))*
+                                 (pred*priornontaag - data.matrix(nontaag[(testsplit+2):nrow(nontaag),3:ncol(nontaag)]))))
+  #returns RMSE for each time series taag first and then nontaag
+  return(list(taagrmse,nontaagrmse))
+}
+```
+
+``` r
+AR1original <- function(predictions,stationary,data,transformation,testsplit)
+{
+  pred <- c()
+  for (j in 1:nrow(predictions))
+  {#increases to the next observation of the test set to predict
+    #print("forecasted value")
+    #print(f)
+    #print("unscale")
+    un <- unscale(t(data.matrix(predictions[j,])),stationary[1:testsplit,3:ncol(stationary)])
+    #print(un)
+    #print("undiff")
+    undif <- undiff2(un,data,transformation,(testsplit+1))
+    #print(undif)
+    pred <- rbind(pred,undif)
+  }
+  #pred
+  #returns matrix of predicted values
+  return(data.matrix(pred))
+}
+```
+
+``` r
+#AR(1) for TWIT
+#taag weekly 
+#model = AR
+#lag selection = 1 
+
+p1 <- c()
+for(i in (1:ncol(scaled_TWIT))){
+  set.seed(1)
+  train.ar <- Arima(window(scaled_TWIT[,i],end = split),order = c(1,0,0),include.drift = TRUE,
+                    include.mean = FALSE,include.constant = TRUE)
+  #train.ar
+  test.ar <- Arima(window(scaled_TWIT[,i],start = (split+1)), model=train.ar,include.drift = TRUE,
+                   include.mean = FALSE,include.constant = TRUE)
+  p1 <- cbind(p1,data.matrix(test.ar$fitted))
+}
+#p1
+AR1_TWIT_RMSEF <- AR1MSFE(p1,TWIT,WIT,WIT_names,split)
+#AR1_TWIT_RMSEF
+#un <- NULL
+#un <- unscale(data.matrix(pred),TWIT[1:split,3:ncol(TWIT)])
+#undif <- NULL
+#print(un)
+#print("undiff")
+#undif <- undiff2(un,WIT,WIT_names,(split+1))
+
+#undiff2(unscale(t(data.matrix(pred1)),TWIO[c(1:split),3:ncol(TWIO)]),WIO,WIO_names,(split+1))
+
+#mean(MSE)
+if (!("AR(1)" %in% TWIT_modelused))
+{
+  TWIT_modelused <- c(TWIT_modelused,"AR(1)")
+  TWIT_MsFE <- rbind(TWIT_MsFE, mean(AR1_TWIT_RMSEF))
+  TWIT_RMSE <- rbind(TWIT_RMSE, AR1_TWIT_RMSEF)
+}
+#fitted(test.ar, h=1)
+```
+
+``` r
+#AR(1) for TWINT
+#non-taag weekly 
+#model = AR
+#lag selection = 1 
+
+p1 <- c()
+for(i in (1:ncol(scaled_TWINT))){
+  set.seed(1)
+  train.ar <- Arima(window(scaled_TWINT[,i],end = split),order = c(1,0,0),include.drift = TRUE,
+                    include.mean = FALSE,include.constant = TRUE)
+  train.ar
+  test.ar <- Arima(window(scaled_TWINT[,i],start = (split+1)), model=train.ar,include.drift = TRUE,
+                   include.mean = FALSE,include.constant = TRUE)
+  p1 <- cbind(p1,data.matrix(test.ar$fitted))
+}
+#p1
+AR1_TWINT_RMSEF <- AR1MSFE(p1,TWINT,WINT,WINT_names,split)
+#AR1_TWINT_RMSEF
+#mean(MSE)
+if (!("AR(1)" %in% TWINT_modelused))
+{
+  TWINT_modelused <- c(TWINT_modelused,"AR(1)")
+  TWINT_MsFE <- rbind(TWINT_MsFE, mean(AR1_TWINT_RMSEF))
+  TWINT_RMSE <- rbind(TWINT_RMSE, AR1_TWINT_RMSEF)
+}
+#fitted(test.ar, h=1)
+```
+
+``` r
+#AR(1) for TWIO
+#overall weekly 
+#model = AR
+#lag selection = 1 
+
+p1 <- c()
+for(i in (1:ncol(scaled_TWIO))){
+  set.seed(1)
+  train.ar <- Arima(window(scaled_TWIO[,i],end = split),order = c(1,0,0),include.drift = TRUE,
+                    include.mean = FALSE,include.constant = TRUE)
+  train.ar
+  test.ar <- Arima(window(scaled_TWIO[,i],start = (split+1)), model=train.ar,include.drift = TRUE,
+                   include.mean = FALSE,include.constant = TRUE)
+  p1 <- cbind(p1,data.matrix(test.ar$fitted))
+}
+#p1
+
+AR1_TWIO_RMSEF <- AR1_overall(p1,TWIO,WIO,WIO_names,split,WIT,WINT)
+#print("TAAG")
+#print(AR1_TWIO_RMSEF[[1]])
+#print("Non-TAAG")
+#print(AR1_TWIO_RMSEF[[2]])
+
+
+if (!("AR(1)_Overall" %in% TWIT_modelused))
+{
+  TWIT_modelused <- c(TWIT_modelused,"AR(1)_Overall")
+  TWIT_MsFE <- rbind(TWIT_MsFE, mean(AR1_TWIO_RMSEF[[1]]))
+  TWIT_RMSE <- rbind(TWIT_RMSE, AR1_TWIO_RMSEF[[1]])
+}
+if (!("AR(1)_Overall" %in% TWINT_modelused))
+{
+  TWINT_modelused <- c(TWINT_modelused,"AR(1)_Overall")
+  TWINT_MsFE <- rbind(TWINT_MsFE, mean(AR1_TWIO_RMSEF[[2]]))
+  TWINT_RMSE <- rbind(TWINT_RMSE, AR1_TWIO_RMSEF[[2]])
+}
+
+#fitted(test.ar, h=1)
+```
+
+``` r
+priortaag <- colSums(WIT[1:(split+1),3:ncol(WIT)])/colSums(WIO[1:(split+1),3:ncol(WIO)])
+priornontaag <- c(rep(1,(ncol(WIT)-2))) - priortaag
+priorinfo <- c()
+for (i in 1:(ncol(WIT) -2)) {
+  priorinfo <- c(priorinfo,paste0(paste0(paste0("TAAG Prior for ",crimenames[i]),": "),round(priortaag[[i]],2)))
+}
+
+TWIT_MsFE <- data.frame(TWIT_MsFE)
+rownames(TWIT_MsFE) <- TWIT_modelused
+colnames(TWIT_MsFE) <- c("mean(RMSE on TAAG DATA)")
+
+TWINT_MsFE <- data.frame(TWINT_MsFE)
+rownames(TWINT_MsFE) <- TWINT_modelused
+colnames(TWINT_MsFE) <- c("mean(RMSE on NON-TAAG DATA)")
+
+
+
+
+MsFE <- cbind(TWIT_MsFE,TWINT_MsFE)
+rownames(MsFE) <- TWIT_modelused
+kbl(MsFE, booktabs = T, caption = "Out-Of-Sample model evaluation") %>% 
+    footnote(general = c("Prior probabilities of TAAG/Overall for each crime to get the forecast of crimes"," in TAAG areas from Overall model forecasted values.","It follows that the prior probability for Non-TAAG is 1 - the priors for TAAG/Overall"),
+           number = c(priorinfo[1],priorinfo[2],priorinfo[3],priorinfo[4],priorinfo[5],priorinfo[6],priorinfo[7])) %>% 
+    footnote(general = paste0("Train/Test split ratio ", trainratio)) %>%
+  kable_styling(latex_options = c("striped", "scale_down"))
+```
+
 <table style="NAborder-bottom: 0;border-bottom: 0; margin-left: auto; margin-right: auto;" class="table">
 <caption>
 Out-Of-Sample model evaluation
@@ -2003,6 +3417,28 @@ the priors for TAAG/Overall
 </tr>
 </tfoot>
 </table>
+
+``` r
+TWIT_RMSE <- data.frame(TWIT_RMSE)
+rownames(TWIT_RMSE) <- TWIT_modelused
+colnames(TWIT_RMSE) <- colnames(TWIT[,3:ncol(TWIT)])
+
+TWINT_RMSE <- data.frame(TWINT_RMSE)
+rownames(TWINT_RMSE) <- TWINT_modelused
+colnames(TWINT_RMSE) <- colnames(TWINT[,3:ncol(TWINT)])
+
+
+
+
+#MsFE <- cbind(TWIT_MsFE,TWINT_MsFE)
+#rownames(MsFE) <- TWIT_modelused
+kbl(TWIT_RMSE, booktabs = T, caption = "Out-Of-Sample model evaluation RMSE for TAAG data for each crime") %>% 
+    footnote(general = c("Prior probabilities of TAAG/Overall for each crime to get the forecast of crimes"," in TAAG areas from Overall model forecasted values."),
+           number = c(priorinfo[1],priorinfo[2],priorinfo[3],priorinfo[4],priorinfo[5],priorinfo[6],priorinfo[7])) %>% 
+    footnote(general = paste0("Train/Test split ratio ", trainratio)) %>%
+  kable_styling(latex_options = c("striped", "scale_down"))
+```
+
 <table style="NAborder-bottom: 0;border-bottom: 0; margin-left: auto; margin-right: auto;" class="table">
 <caption>
 Out-Of-Sample model evaluation RMSE for TAAG data for each crime
@@ -2258,6 +3694,19 @@ the forecast of crimes
 </tr>
 </tfoot>
 </table>
+
+``` r
+priorinfo <- c()
+for (i in 1:(ncol(WIT) -2)) {
+  priorinfo <- c(priorinfo,paste0(paste0(paste0("Non-TAAG Prior for ",crimenames[i]),": "),round(priornontaag[[i]],2)))
+}
+kbl(TWINT_RMSE, booktabs = T, caption = "Out-Of-Sample model evaluation RMSE for Non-TAAG data for each crime") %>% 
+    footnote(general = c("Prior probabilities of Non-TAAG/Overall for each crime to get the forecast of crimes"," in Non-TAAG areas from Overall model forecasted values."),
+           number = c(priorinfo[1],priorinfo[2],priorinfo[3],priorinfo[4],priorinfo[5],priorinfo[6],priorinfo[7])) %>% 
+    footnote(general = paste0("Train/Test split ratio ", trainratio)) %>%
+  kable_styling(latex_options = c("striped", "scale_down"))
+```
+
 <table style="NAborder-bottom: 0;border-bottom: 0; margin-left: auto; margin-right: auto;" class="table">
 <caption>
 Out-Of-Sample model evaluation RMSE for Non-TAAG data for each crime
