@@ -1,0 +1,1 @@
+The original data source is Police_Incidents1.csv, which contains the crime incidents reported by the Dallas Police Department from 2014 to 2021. All other csv files are intermediate or final data sets that have been cleaned, transformed, or aggregated for the purpose of the project. These files are labeled with descriptive names and comments in the code.
