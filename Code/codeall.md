@@ -3,42 +3,6 @@ R code forecasting crimes in Dallas
 John Kenney
 11/12/2021
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 ``` r
 library(ggplot2)
 library(dplyr)

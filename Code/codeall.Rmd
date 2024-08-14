@@ -3,26 +3,6 @@ title: "R code forecasting crimes in Dallas"
 author: "John Kenney"
 date: "11/12/2021"
 output: github_document
-header-includes: 
-  - \usepackage{fvextra}
-  - \usepackage{float} 
-  - \floatplacement{figure}{H}
-  - \usepackage{bm}
-  - \usepackage{wrapfig}
-  - \usepackage{amsmath}
-  - \usepackage{mathtools}
-  - \usepackage{longtable}
-  - \usepackage{enumitem}
-  - \usepackage{booktabs}
-  - \usepackage{verbatim}
-  - \allowdisplaybreaks
-  - \usepackage{comment}
-  - \usepackage{fullpage}
-  - \usepackage{caption}
-  - \usepackage{subfig}
-  - \DefineVerbatimEnvironment{Highlighting}{Verbatim}{breaklines,commandchars=\\\{\}}
-  - \DeclareUnicodeCharacter{2212}{-}
-urlcolor: blue
 always_allow_html: true
 ---
 
